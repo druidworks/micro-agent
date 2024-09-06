@@ -1,37 +1,88 @@
 import blessed from 'neo-blessed';
-import { it } from 'node:test';
+
+interface StyleGuideItem {
+    fg: string;
+    bg: string;
+}
+export type StyleGuide = {
+    primary: StyleGuideItem;
+    secondary: StyleGuideItem;
+    tertiary: StyleGuideItem;
+    content: StyleGuideItem;
+    highlight: StyleGuideItem;
+    focus: StyleGuideItem;
+    hover: StyleGuideItem;
+}
 
 export interface DashboardMenuItem {
     id: string;
     label: string;
     title?: string;
     childItems?: DashboardMenuItem[];
+    callback?: (menuItem: DashboardMenuItem) => boolean;
+}
+
+interface DashboardMenu {
+    title: string;
+    items: DashboardMenuItem[];
 }
 
 export interface DashboardUIOptions {
     screen: blessed.Widgets.IScreenOptions;
-    menu: {
+    menu?: {
         title: string;
         items: DashboardMenuItem[];
-    }
+    };
+    styleGuide?: Partial<StyleGuide>;
 }
 
-const getCommonBoxStyle = (options?: {focusable?: boolean}) => {
-    const {focusable = true} = options || {};
+const defaultStyleGuide: StyleGuide = {
+    primary: {
+        fg: 'green',
+        bg: 'black',
+    },
+    secondary: {
+        fg: '#33AA33',
+        bg: 'black',
+    },
+    tertiary: {
+        fg: 'lightblue',
+        bg: 'black',
+    },
+    content: {
+        fg: 'white',
+        bg: 'black',
+    },
+    highlight: {
+        fg: 'black',
+        bg: 'green',
+    },
+    focus: {
+        fg: 'green',
+        bg: 'black',
+    },
+    hover: {
+        fg: '#33AA33',
+        bg: 'black',
+    },
+}
+
+const getCommonBoxStyle = (options?: { focusable?: boolean; styleGuide: StyleGuide }) => {
+    const { focusable = true, styleGuide = defaultStyleGuide } = options || {};
     const baseStyle: Record<string, any> = {
         border: {
-            fg: 'white'
+            fg: styleGuide.content.fg,
         }
     };
     if (focusable) {
         baseStyle.hover = {
             border: {
-                fg: 'green'
+                fg: styleGuide.hover.fg,
             }
         };
         baseStyle.focus = {
             border: {
-                fg: '#333333'
+                fg: styleGuide.focus.fg,
             }
         };
     }
@@ -41,63 +92,97 @@ const getCommonBoxStyle = (options?: {focusable?: boolean}) => {
 export class DashboardUI {
     private options: DashboardUIOptions;
     private screen: blessed.Widgets.Screen;
-    private navigationBox: blessed.Widgets.BoxElement;
-    private menuTitle: blessed.Widgets.TextElement;
-    private menu: blessed.Widgets.ListElement;
-    private displayBox: blessed.Widgets.BoxElement;
-    private textbox: blessed.Widgets.TextboxElement;
+    private styleGuide: StyleGuide;
+
+    private elements: {
+        headerBox: blessed.Widgets.BoxElement;
+        navigationBox?: blessed.Widgets.BoxElement;
+        menuTitle?: blessed.Widgets.TextElement;
+        menu?: blessed.Widgets.ListElement;
+        displayBox: blessed.Widgets.BoxElement;
+        textbox: blessed.Widgets.TextboxElement;
+    }
 
     private tabFocusGroupIndex = 0;
     private tabFocusGroup: (blessed.Widgets.BoxElement | blessed.Widgets.TextboxElement)[] = [];
 
+    private menuEnabled: boolean;
     private menuPath: string | undefined;
     private menuItemIndex = 0;
-    private menuItems: DashboardMenuItem[];
+    private menuOptions: DashboardMenu | undefined;
 
     constructor(title: string, options: DashboardUIOptions) {
         this.options = options;
-        this.screen = blessed.screen(options.screen);
+        this.styleGuide = {
+            ...defaultStyleGuide,
+            ...options.styleGuide
+        }
+        this.screen = blessed.screen({
+            style: {
+                fg: this.styleGuide.content.fg,
+                bg: this.styleGuide.content.bg,
+            },
+            ...options.screen
+        });
         this.screen.title = title;
 
-        this.menuItems = options.menu.items.slice();
 
-        this.navigationBox = blessed.box({
+        const headerBox = blessed.box({
             top: 0,
-            left: 0,
-            bottom: 3,
-            width: 25,
-            content: '',
-            tags: true,
-            border: {
-                type: 'line'
-            },
-            style: getCommonBoxStyle(),
-        });
-        this.menuTitle = blessed.text({
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: 1,
-            content: 'Actions',
-            style: {
-                fg: 'white'
-            }
-        })
-        this.menu = blessed.list({
-            top: 2,
             left: 0,
             right: 0,
-            bottom: 0,
-            items: this.getMenuOptions(),
+            height: 1,
+            content: title.toUpperCase(),
             style: {
-                selected: {
-                    fg: 'green'
-                }
+                fg: this.styleGuide.primary.fg,
+                bold: true,
             }
         });
-        this.displayBox = blessed.box({
-            top: 0,
-            left: 25,
+
+        let navigationBox, menuTitle, menu;
+        this.menuEnabled = !!options.menu;
+        if (this.menuEnabled && options.menu) {
+            this.menuOptions = { ...options.menu };
+            navigationBox = blessed.box({
+                top: 1,
+                left: 0,
+                bottom: 3,
+                width: 20,
+                content: '',
+                tags: true,
+                border: {
+                    type: 'line'
+                },
+                style: getCommonBoxStyle({ styleGuide: this.styleGuide }),
+            });
+            menuTitle = blessed.text({
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 1,
+                content: 'Actions',
+                style: {
+                    fg: this.styleGuide.secondary.fg,
+                    bold: true,
+                }
+            })
+            menu = blessed.list({
+                top: 2,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                items: this.parseMenuItems(options.menu.items),
+                style: {
+                    selected: {
+                        fg: this.styleGuide.focus.fg,
+                    }
+                }
+            });
+        }
+
+        const displayBox = blessed.box({
+            top: 1,
+            left: this.menuEnabled ? 20 : 0,
             right: 0,
             bottom: 3,
             content: '',
@@ -106,29 +191,43 @@ export class DashboardUI {
             border: {
                 type: 'line'
             },
-            style: getCommonBoxStyle({focusable: false})
+            style: getCommonBoxStyle({ focusable: false, styleGuide: this.styleGuide })
         });
-        this.textbox = blessed.textbox({
+        const textbox = blessed.textbox({
             bottom: 0,
             width: '100%',
             height: 3,
             border: {
                 type: 'line'
             },
-            style: getCommonBoxStyle(),
+            style: getCommonBoxStyle({ styleGuide: this.styleGuide }),
             inputOnFocus: true
         });
+        this.elements = {
+            headerBox,
+            navigationBox,
+            menuTitle,
+            menu,
+            displayBox,
+            textbox
+        };
         this.tabFocusGroup = [
-            this.navigationBox,
-            this.textbox
+            this.elements.textbox
         ];
+        if (this.menuEnabled && this.elements.navigationBox) {
+            this.tabFocusGroup.unshift(this.elements.navigationBox);
+        }
         this.setupEvents();
     }
 
     public render() {
         this.setupLayout();
         this.screen.render();
-        this.navigationBox.focus();
+        if (this.menuEnabled) {
+            this.elements.navigationBox?.focus();
+        } else {
+            this.elements.textbox.focus();
+        }
     }
 
     private setupEvents() {
@@ -159,110 +258,115 @@ export class DashboardUI {
         return pathSegments.slice(0, -1).join('.');
     }
 
-    private getMenuOptions(path?: string): string[] | undefined {
-        if (!path) {
-            return this.menuItems.map(item => item.label);
-        }
-        const id = path.split('.').shift();
-        const menuItem = this.menuItems.find((item) => item.id === id);
-        if (menuItem?.childItems?.length) {
-            return menuItem.childItems.map(item => item.label);
-        }
+    private parseMenuItems(items: DashboardMenuItem[]): string[] {
+        return items.map(item => item.label);
     }
 
     private getMenu(path?: string): DashboardMenuItem | undefined {
-        if (!path) {
-            return { id: '', label: '', title: this.options.menu.title, childItems: this.menuItems };
+        if (this.menuOptions) {
+            if (!path) {
+                return { id: '', label: '', title: this.menuOptions.title, childItems: this.menuOptions.items };
+            }
+            const pathSegments = path.split('.');
+            const id = pathSegments.shift();
+            if (id) {
+                const menuItem = this.menuOptions.items.find((item) => item.id === id);
+                if (menuItem) {
+                    return menuItem;
+                } else {
+                    return this.getMenu(pathSegments.join('.'));
+                }
+            }
         }
-        const id = path.split('.').shift();
-        const menuItem = this.menuItems.find((item) => item.id === id);
-        if (menuItem) {
-            return menuItem;
-        }
+        return;
     }
 
     private setupNavigationEvents() {
-        this.setupMouseFocus(this.navigationBox);
-        this.navigationBox.key(['up', 'down'], (ch, key) => {
-            const currentMenu = this.getMenu(this.menuPath);
-            const menuLength = currentMenu?.childItems?.length;
-            if (currentMenu && menuLength) {
-                if (key.name === 'down') {
-                    if (this.menuItemIndex >= menuLength - 1) {
-                        this.menu.move(-menuLength + 1);
-                        this.menuItemIndex = 0;
+        if (this.elements.navigationBox) {
+            this.setupMouseFocus(this.elements.navigationBox);
+            this.elements.navigationBox.key(['up', 'down'], (ch, key) => {
+                const currentMenu = this.getMenu(this.menuPath);
+                const menuLength = currentMenu?.childItems?.length;
+                if (currentMenu && menuLength) {
+                    if (key.name === 'down') {
+                        if (this.menuItemIndex >= menuLength - 1) {
+                            this.elements.menu?.move(-menuLength + 1);
+                            this.menuItemIndex = 0;
+                        } else {
+                            this.elements.menu?.down(1);
+                            this.menuItemIndex++;
+                        }
                     } else {
-                        this.menu.down(1);
-                        this.menuItemIndex++;
+                        if (this.menuItemIndex <= 0) {
+                            this.elements.menu?.move(menuLength - 1);
+                            this.menuItemIndex = menuLength - 1;
+                        } else {
+                            this.elements.menu?.up(1);
+                            this.menuItemIndex--;
+                        }
                     }
-                } else {
-                    if (this.menuItemIndex <= 0) {
-                        this.menu.move(menuLength - 1);
-                        this.menuItemIndex = menuLength - 1;
-                    } else {
-                        this.menu.up(1);
-                        this.menuItemIndex--;
+                    this.screen.render();
+                }
+            });
+            this.elements.navigationBox.key(['enter', 'space'], (ch, key) => {
+                const currentMenu = this.getMenu(this.menuPath);
+                const menuLength = currentMenu?.childItems?.length;
+                if (currentMenu?.childItems && menuLength) {
+                    this.elements.displayBox.pushLine(`actioned using ${ch}, ${key.name}`);
+                    this.elements.displayBox.pushLine(`Menu Item: ${this.menuItemIndex + 1}/${menuLength}, ${currentMenu.childItems[this.menuItemIndex].label}`);
+                    const callback = currentMenu.childItems[this.menuItemIndex].callback;
+                    if (callback) {
+                        callback(currentMenu.childItems[this.menuItemIndex]);
                     }
+                    if (currentMenu.childItems[this.menuItemIndex].childItems?.length) {
+                        const childMenuPath = this.getChildMenuPath(currentMenu.childItems[this.menuItemIndex].id);
+                        this.updateMenu(childMenuPath);
+                    }
+                    this.screen.render();
                 }
-                this.screen.render();
-            }
-        });
-        this.navigationBox.key(['enter', 'space'], (ch, key) => {
-            const currentMenu = this.getMenu(this.menuPath);
-            const menuLength = currentMenu?.childItems?.length;
-            if (currentMenu?.childItems && menuLength) {
-                this.displayBox.pushLine(`actioned using ${ch}, ${key.name}`);
-                this.displayBox.pushLine(`Menu Item: ${this.menuItemIndex+1}/${menuLength}, ${currentMenu.childItems[this.menuItemIndex].label}`);
-                if (currentMenu.childItems[this.menuItemIndex].childItems?.length) {
-                    const childMenuPath = this.getChildMenuPath(currentMenu.childItems[this.menuItemIndex].id);
-                    this.updateMenu(childMenuPath);
+            });
+            this.elements.navigationBox.key(['backspace'], (ch, key) => {
+                const currentMenu = this.getMenu(this.menuPath);
+                if (currentMenu) {
+                    const parentPath = this.getParentMenuPath();
+                    if (this.menuPath) {
+                        this.updateMenu(parentPath);
+                    }
+                    this.screen.render();
                 }
-                this.screen.render();
-            }
-        });
-        this.navigationBox.key(['backspace'], (ch, key) => {
-            const currentMenu = this.getMenu(this.menuPath);
-            if (currentMenu) {
-                const parentPath = this.getParentMenuPath();
-                if (this.menuPath) {
-                    this.updateMenu(parentPath);
-                }
-                this.screen.render();
-            }
-        })
+            })
+        }
     }
 
     private updateMenu(path: string | undefined) {
-        const menu = this.getMenu(path);
-        if (menu && menu.childItems && menu.childItems.length > 0) {
-            if (!path) {
-                this.menuTitle.setContent(this.options.menu.title);
-            } else {
-                this.menuTitle.setContent(menu.title || menu.label);
+        if (this.elements.menu && this.elements.menuTitle) {
+            const menu = this.getMenu(path);
+            if (menu && menu.childItems && menu.childItems.length > 0) {
+                this.menuPath = path;
+                this.elements.menuTitle.setContent(menu.title || menu.label);
+                this.elements.menu.setItems(this.parseMenuItems(menu.childItems));
+                this.elements.menu.move(-this.menuItemIndex);
+                this.menuItemIndex = 0;
             }
-            this.menuPath = path;
-            this.menu.setItems(menu.childItems.map(item => item.label));
-            this.menu.move(-this.menuItemIndex);
-            this.menuItemIndex = 0;
         }
     }
 
     private setupTextboxEvents() {
-        this.textbox.key(['tab'], this.tabFocus);        
-        this.textbox.key('enter', (ch, key) => {
-            this.displayBox.pushLine(this.textbox.getValue());
-            this.textbox.clearValue();
-            this.textbox.focus();
+        this.elements.textbox.key(['tab'], this.tabFocus);
+        this.elements.textbox.key('enter', (ch, key) => {
+            this.elements.displayBox.pushLine(this.elements.textbox.getValue());
+            this.elements.textbox.clearValue();
+            this.elements.textbox.focus();
             this.screen.render();
         });
-        this.setupMouseFocus(this.textbox);
+        this.setupMouseFocus(this.elements.textbox);
     }
 
     private setupMouseFocus(screenElement: blessed.Widgets.BoxElement | blessed.Widgets.TextboxElement) {
         screenElement.on('click', (data) => {
-            if (screenElement !== this.textbox) {
-                this.textbox.clearValue();
-                this.textbox.cancel();
+            if (screenElement !== this.elements.textbox) {
+                this.elements.textbox.clearValue();
+                this.elements.textbox.cancel();
             }
             this.tabFocusGroup.forEach((element, index) => {
                 if (element !== screenElement) {
@@ -271,14 +375,14 @@ export class DashboardUI {
                     this.tabFocusGroupIndex = index;
                 }
             });
-            screenElement.focus();            
+            screenElement.focus();
             this.screen.render();
         })
     }
 
     private tabFocus = (ch: any, key: any) => {
-        this.textbox.clearValue();
-        this.textbox.cancel();
+        this.elements.textbox.clearValue();
+        this.elements.textbox.cancel();
         this.tabFocusGroup[this.tabFocusGroupIndex].style.border.fg = 'white';
         this.tabFocusGroupIndex++;
         if (this.tabFocusGroupIndex >= this.tabFocusGroup.length) {
@@ -289,10 +393,17 @@ export class DashboardUI {
     };
 
     private setupLayout() {
-        this.navigationBox.append(this.menuTitle);
-        this.navigationBox.append(this.menu);
-        this.screen.append(this.navigationBox);
-        this.screen.append(this.displayBox);
-        this.screen.append(this.textbox);
+        this.screen.append(this.elements.headerBox);
+        if (this.menuEnabled && this.elements.navigationBox) {
+            if (this.elements.menuTitle) {
+                this.elements.navigationBox.append(this.elements.menuTitle);
+            }
+            if (this.elements.menu) {
+                this.elements.navigationBox.append(this.elements.menu);
+            }
+            this.screen.append(this.elements.navigationBox);
+        }
+        this.screen.append(this.elements.displayBox);
+        this.screen.append(this.elements.textbox);
     }
 }
