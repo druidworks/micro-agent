@@ -1,34 +1,33 @@
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import { fileExists } from './file-exists';
+import { existsSync, readFileSync } from 'node:fs';
+import * as path from 'node:path';
 
 /**
  * Find dependency file in the given directory or any
  * parent directory. Returns the content of the dependency file.
  */
-export async function getDependencyFile(
+export function getDependencyFile(
   directory = process.cwd(),
   language?: string
-): Promise<string | null> {
+): string | null {
   let currentDirectory = directory;
   while (currentDirectory !== '/') {
     if (language) {
       const filePath = getDependenciesFilePath(directory, language);
 
-      if (await fileExists(filePath)) {
+      if (existsSync(filePath)) {
         return getDependenciesFileContent(directory, language);
       }
     } else {
       let filePath = getDependenciesFilePath(directory, 'py');
-      if (await fileExists(filePath)) {
+      if (existsSync(filePath)) {
         return getDependenciesFileContent(directory, 'py');
       }
       filePath = getDependenciesFilePath(directory, 'rb');
-      if (await fileExists(filePath)) {
+      if (existsSync(filePath)) {
         return getDependenciesFileContent(directory, 'rb');
       }
       filePath = getDependenciesFilePath(directory, 'js');
-      if (await fileExists(filePath)) {
+      if (existsSync(filePath)) {
         return getDependenciesFileContent(directory, 'js');
       }
     }
@@ -58,11 +57,11 @@ function getDependenciesFilePath(directory: string, language?: string): string {
   return path.join(directory, fileName);
 }
 
-async function getDependenciesFileContent(
+function getDependenciesFileContent(
   directory = process.cwd(),
   language?: string
-): Promise<string> {
+): string {
   const filePath = getDependenciesFilePath(directory, language);
-  const fileContent = await fs.readFile(filePath, 'utf8');
+  const fileContent = readFileSync(filePath, { encoding: 'utf8' });
   return fileContent;
 }

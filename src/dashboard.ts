@@ -1,54 +1,108 @@
 import { DashboardUI, DashboardMenuItem } from './lib/DashboardUI';
-import { isProject, getProjectMeta, getFolders, isProjectDiscoverable, isProjectReady } from './lib/project';
+import { getFolders } from './lib/project/getFolders';
+import { getProjectMeta } from './lib/project/getProjectMeta';
+import { isProject } from './lib/project/isProject';
+import ProjectPackage from './lib/project/ProjectPackage';
+import { isProjectReady } from './lib/project/isProjectReady';
 
-const currentDirectory = process.cwd();
+// TODO: refresh dashboard menu via callbacks
 
-let dashboardMenuItems: DashboardMenuItem[] = [
-    { id: 'One', label: 'Test One' },
-    {
-        id: 'Two', 
-        label: 'Test Two', 
-        title: 'Two Actions',
-        childItems: [
-            { id: 'Two.1', label: 'Test Two.1' },
-            { id: 'Two.2', label: 'Test Two.2' },
+function DashboardManager() {
+    let dashboard: DashboardUI;
+    const currentDirectory = process.cwd();
+
+    const addFile = (mi: DashboardMenuItem) => {
+        return false;
+    }
+
+    const deleteFile = (mi: DashboardMenuItem) => {
+        return false;
+    }
+
+    const reviewProject = (mi: DashboardMenuItem) => {
+        return false;
+    }
+
+    const discoverProject = (mi: DashboardMenuItem) => {
+        return false;
+    }
+
+    const createProject = (mi: DashboardMenuItem) => {
+        return false;
+    }
+
+    const findProject = (mi: DashboardMenuItem) => {
+        return false;
+    }
+
+    const changeDirectory = (mi: DashboardMenuItem) => {
+        return false;
+    }
+
+    const menus = {
+        project: [
+            { id: 'reviewProject', label: 'Review Gaps', callback: reviewProject }, // if there are files without meta
+            { id: 'addFile', label: 'Add File', callback: addFile },
+            { id: 'deleteFile', label: 'Delete File', callback: deleteFile },
+        ],
+        projectDiscovery: [
+            { id: 'discoverProject', label: 'Discover Project', callback: discoverProject },
+        ],
+        projectReady: [
+            { id: 'createProject', label: 'Create Project', callback: createProject },
+        ],
+        projectSearch: [
+            { id: 'findProject', label: 'Find Project', callback: findProject },
+            { id: 'changeDir', label: 'Change Directory', callback: changeDirectory },
         ]
-    },
-    { id: 'Three', label: 'Test Three' },
-];
-
-//  check if the current directory is a project
-if (isProject(currentDirectory)) {
-    const projectMeta = getProjectMeta(currentDirectory);
-    if (projectMeta) {
-        
     }
-}
-else if (isProjectDiscoverable(currentDirectory)) {
 
-}
-else if (isProjectReady(currentDirectory)) {
+    const initialize = () => {
+        let dashboardMenuItems: DashboardMenuItem[] = [];
 
-}
-else {
-    const folders = getFolders(currentDirectory);
-    if (folders.length > 0) {
-        
-    }
-}
-
-createDashboard(dashboardMenuItems);
-
-function createDashboard(items: DashboardMenuItem[]) {
-    const mdash = new DashboardUI('Code House Agency', {
-        screen: {
-            smartCSR: true
-        },
-        menu: {
-            title: 'Actions',
-            items
+        //  check if the current directory is a project
+        if (isProject(currentDirectory)) {
+            const projectMeta = getProjectMeta(currentDirectory);
+            if (projectMeta) {
+                dashboardMenuItems = menus.project;
+            }
         }
-    });
-    
-    mdash.render();
+        else if (ProjectPackage.has(currentDirectory)) {
+            const projectPackage = ProjectPackage.get(currentDirectory);
+            dashboardMenuItems = menus.projectDiscovery;
+        }
+        else if (isProjectReady(currentDirectory)) {
+            dashboardMenuItems = menus.projectReady;
+        }
+        else {
+            const folders = getFolders(currentDirectory);
+            if (folders.length > 0) {
+
+                dashboardMenuItems = menus.projectSearch;
+            }
+        }
+
+        if (!dashboard) {
+            dashboard = new DashboardUI('AI Projects', {
+                screen: {
+                    smartCSR: true
+                },
+                menu: {
+                    title: 'Actions',
+                    items: dashboardMenuItems
+                }
+            });
+        
+            dashboard.render();
+        } else {
+            dashboard.render();
+        }
+    }
+
+    return {
+        setup: initialize
+    }
 }
+
+const dm = DashboardManager();
+dm.setup();

@@ -230,6 +230,15 @@ export class DashboardUI {
         }
     }
 
+    public updateMenu(menu: DashboardMenu) {
+        this.menuEnabled = true;
+        this.menuPath = undefined;
+        this.menuItemIndex = 0;
+        this.menuOptions = menu;
+        this.updateMenuElements(this.menuPath);
+        this.render();
+    }
+
     private setupEvents() {
         this.setupNavigationEvents();
         this.setupTextboxEvents();
@@ -320,7 +329,7 @@ export class DashboardUI {
                     }
                     if (currentMenu.childItems[this.menuItemIndex].childItems?.length) {
                         const childMenuPath = this.getChildMenuPath(currentMenu.childItems[this.menuItemIndex].id);
-                        this.updateMenu(childMenuPath);
+                        this.updateMenuElements(childMenuPath);
                     }
                     this.screen.render();
                 }
@@ -330,7 +339,7 @@ export class DashboardUI {
                 if (currentMenu) {
                     const parentPath = this.getParentMenuPath();
                     if (this.menuPath) {
-                        this.updateMenu(parentPath);
+                        this.updateMenuElements(parentPath);
                     }
                     this.screen.render();
                 }
@@ -338,7 +347,7 @@ export class DashboardUI {
         }
     }
 
-    private updateMenu(path: string | undefined) {
+    private updateMenuElements(path: string | undefined) {
         if (this.elements.menu && this.elements.menuTitle) {
             const menu = this.getMenu(path);
             if (menu && menu.childItems && menu.childItems.length > 0) {

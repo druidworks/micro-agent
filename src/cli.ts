@@ -124,7 +124,7 @@ cli(
     };
     try {
       if (!argv._.filePath || !argv.flags.test) {
-        const isValidproject = await isValidProject();
+        const isValidproject = isValidProject();
 
         if (!isValidproject) {
           await invalidProjectWarningMessage();
