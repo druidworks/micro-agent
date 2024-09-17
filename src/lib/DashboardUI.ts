@@ -22,7 +22,7 @@ export interface DashboardMenuItem {
     callback?: (menuItem: DashboardMenuItem) => boolean;
 }
 
-interface DashboardMenu {
+export interface DashboardMenu {
     title: string;
     items: DashboardMenuItem[];
 }
