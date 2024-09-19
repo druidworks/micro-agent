@@ -19,7 +19,7 @@ export interface DashboardMenuItem {
     label: string;
     title?: string;
     childItems?: DashboardMenuItem[];
-    callback?: (menuItem: DashboardMenuItem) => boolean;
+    callback?: (menuItem: DashboardMenuItem) => Promise<boolean> | boolean;
 }
 
 export interface DashboardMenu {
@@ -193,16 +193,7 @@ export class DashboardUI {
             },
             style: getCommonBoxStyle({ focusable: false, styleGuide: this.styleGuide })
         });
-        const textbox = blessed.textbox({
-            bottom: 0,
-            width: '100%',
-            height: 3,
-            border: {
-                type: 'line'
-            },
-            style: getCommonBoxStyle({ styleGuide: this.styleGuide }),
-            inputOnFocus: true
-        });
+        const textbox = this.createTextbox();
         this.elements = {
             headerBox,
             navigationBox,
@@ -237,6 +228,119 @@ export class DashboardUI {
         this.menuOptions = menu;
         this.updateMenuElements(this.menuPath);
         this.render();
+    }
+
+    public async promptText(prompt: string, initialValue?: string): Promise<string> {
+        return new Promise((resolve, reject) => {
+            const dialog = this.createDialog(prompt);
+            const textbox = this.createTextbox();
+            textbox.key('enter', (ch, key) => {
+                const value = textbox.getValue().trim();
+                textbox.removeAllListeners();
+                dialog.remove(textbox);
+                this.screen.remove(dialog);
+                this.screen.render();
+                resolve(value);
+            });
+            if (initialValue) {
+                textbox.setValue(initialValue);
+            }
+            dialog.append(textbox);
+            this.screen.append(dialog);
+            textbox.focus();
+            this.screen.render();
+        })
+    }
+
+    public async promptSelect(prompt: string, options: { value: string; label: string; }[], isMulti: boolean = false): Promise<string[]> {
+        return new Promise((resolve, reject) => {
+            const selected = new Set<number>();
+            const dialog = this.createDialog(`${prompt} (Press number to select, Press enter to confirm)`);
+            const list = this.createList();
+            const updateListItems = () => {
+                list.setItems(options.map((o, i) => {
+                    const prefix = isMulti ? `[${selected.has(i + 1) ? 'X' : ' '}] ` : '';
+                    return `${prefix}${i + 1}. ${o.label}`;
+                }));
+            }
+            const resolveResponse = () => {                
+                this.screen.remove(dialog);
+                const selectedIndexes = Array.from(selected);
+                resolve(selectedIndexes.map(i => options[i - 1].value));
+            }
+            list.key(options.map((o, i) => `${i + 1}`),
+                (ch, key) => {
+                    const targetIndex = parseInt(key.name, 10);
+                    if (!selected.has(targetIndex)) {
+                        selected.add(targetIndex);
+                    } else {
+                        selected.delete(targetIndex);
+                    }
+                    if (isMulti) {
+                        updateListItems();
+                        this.screen.render();                        
+                    } else {
+                        resolveResponse();
+                    }
+                }
+            );
+            list.key(['enter'], async (ch, key) => {
+                resolveResponse();
+            });
+            updateListItems();
+            dialog.append(list);
+            this.screen.append(dialog);
+            this.screen.render();
+        });
+    }
+
+    private createDialog(title: string) {
+        return blessed.box({
+            top: 4,
+            right: 4,
+            bottom: 4,
+            left: 4,
+            content: title,
+            tags: true,
+            focusable: false,
+            border: {
+                type: 'line'
+            },
+            style: {
+                border: {
+                    fg: 'yellow'
+                }
+            }
+        });
+    }
+
+    private createTextbox() {
+        return blessed.textbox({
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 3,
+            border: {
+                type: 'line'
+            },
+            style: getCommonBoxStyle({ styleGuide: this.styleGuide }),
+            inputOnFocus: true
+        });
+    }
+
+    private createList(items?: string[]) {
+        return blessed.list({
+            top: 2,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            items: items,
+            style: {
+                selected: {
+                    fg: this.styleGuide.focus.fg,
+                }
+            }
+        });
     }
 
     private setupEvents() {
@@ -317,7 +421,7 @@ export class DashboardUI {
                     this.screen.render();
                 }
             });
-            this.elements.navigationBox.key(['enter', 'space'], (ch, key) => {
+            this.elements.navigationBox.key(['enter', 'space'], async (ch, key) => {
                 const currentMenu = this.getMenu(this.menuPath);
                 const menuLength = currentMenu?.childItems?.length;
                 if (currentMenu?.childItems && menuLength) {
@@ -325,7 +429,7 @@ export class DashboardUI {
                     this.elements.displayBox.pushLine(`Menu Item: ${this.menuItemIndex + 1}/${menuLength}, ${currentMenu.childItems[this.menuItemIndex].label}`);
                     const callback = currentMenu.childItems[this.menuItemIndex].callback;
                     if (callback) {
-                        callback(currentMenu.childItems[this.menuItemIndex]);
+                        await callback(currentMenu.childItems[this.menuItemIndex]);
                     }
                     if (currentMenu.childItems[this.menuItemIndex].childItems?.length) {
                         const childMenuPath = this.getChildMenuPath(currentMenu.childItems[this.menuItemIndex].id);

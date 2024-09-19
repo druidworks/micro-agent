@@ -4,8 +4,8 @@ import { getProjectMeta } from './lib/project/getProjectMeta';
 import { isProject } from './lib/project/isProject';
 import ProjectPackage from './lib/project/ProjectPackage';
 import { isProjectReady } from './lib/project/isProjectReady';
-
-// TODO: refresh dashboard menu via callbacks
+import { createProject } from './lib/project/createProject';
+import { ProjectMeta } from './lib/project/ProjectMeta';
 
 type MenuKeys = 'project' | 'projectDiscovery' | 'projectReady' | 'projectSearch';
 
@@ -14,12 +14,26 @@ function DashboardManager() {
     let menus: Record<MenuKeys, DashboardMenu>
     const currentDirectory = process.cwd();
 
-    const showProjectMenu = (mi: DashboardMenuItem) => {
-        if (!dashboard || !menus) {
+    const switchMenu = (m: DashboardMenu | undefined = determineMenu()) => {
+        if (!dashboard || !menus || !m) {
             return false;
         }
-        dashboard.updateMenu(menus.project)
+        dashboard.updateMenu(m)
         return true;
+    }
+
+    const prompt = async (prompt: string, initialValue?: string): Promise<string | undefined> => {
+        if (!dashboard) {
+            return;
+        }
+        return await dashboard.promptText(prompt, initialValue);
+    }
+
+    const promptSelection = async (prompt: string, options: { value: string; label: string; }[], isMulti: boolean = false): Promise<string[] | undefined> => {
+        if (!dashboard) {
+            return;
+        }
+        return await dashboard.promptSelect(prompt, options, isMulti);
     }
 
     //--
@@ -45,7 +59,7 @@ function DashboardManager() {
         //      ask user to confirm
         // delete file at path
         // show project menu
-        showProjectMenu(mi);
+        switchMenu(menus.project);
         return false;
     }
 
@@ -54,8 +68,8 @@ function DashboardManager() {
         //      if dir has files, list out files indicating you can't delete until files have been.
         //          indicate a count for file references 
         // show project menu
-        showProjectMenu(mi);
-        return false;   
+        switchMenu(menus.project);
+        return false;
     }
 
     const reviewProject = (mi: DashboardMenuItem) => {
@@ -63,7 +77,7 @@ function DashboardManager() {
         //      add missing dirs to files.json
         //      new or modified files will need AI to review the file and provide updates to files.json
         // show project menu
-        showProjectMenu(mi);
+        switchMenu(menus.project);
         return false;
     }
 
@@ -109,10 +123,11 @@ function DashboardManager() {
         items: [
             { id: 'reviewProject', label: 'Review Gaps', callback: reviewProject }, // if there are files without meta
             { id: 'addFile', label: 'Add File', callback: addFile },
-            { id: 'editFile', label: 'Edit File', callback: editFile, childItems: [
+            {
+                id: 'editFile', label: 'Edit File', callback: editFile, childItems: [
                     { id: 'changeDeclarations', label: 'Change File Declarations', callback: changeDeclarations },
                     { id: 'addToFile', label: 'Add to file', callback: addToFile },
-                ] 
+                ]
             },
             { id: 'deleteFile', label: 'Delete File', callback: deleteFile },
             { id: 'deleteDir', label: 'Delete Directory', callback: deleteDir },
@@ -129,7 +144,7 @@ function DashboardManager() {
         // once files.json has been updated, gather a list of possible features
         //      update meta.json and files.json with features and featureImpact.
         // switch to project menu
-        showProjectMenu(mi);
+        switchMenu();
         return false;
     }
 
@@ -142,21 +157,36 @@ function DashboardManager() {
 
     //--
 
-    const createProject = (mi: DashboardMenuItem) => {
-        // asks for name, desc, version, test location & feature set.
-        // create ./package.json: applies name, desc, version, applies module as true
-        // create ./.project/meta.json
-        // create ./.project/history.json
-        // create ./.project/files.json
-        // switch to project menu
-        showProjectMenu(mi);
+    const createProjectFiles = async (mi: DashboardMenuItem) => {
+        const name = await prompt('What is the name of your project?');
+        const description = await prompt('Provide a brief description of your project:');
+        const version = await prompt('What is the initial version of your project?', '1.0.0');
+        const tests = await promptSelection('Where will your tests be located?', [
+            { value: 'colocatedFile', label: 'Co-located with the file they test (e.g., myComponent.test.ts)' },
+            { value: 'colocatedDir', label: 'In a directory next to the file they test (e.g., __tests__/myComponent.test.ts)' },
+            { value: 'rootDir', label: 'In a root test directory (e.g., /tests/myComponent.test.ts)' },
+        ]) as ProjectMeta['tests'][];
+
+        const features = await prompt('List out the features of your project (comma separated):');
+
+        if (name && description && version && tests?.length > 0) {
+            createProject({
+                name,
+                description,
+                version,
+                tests: tests[0],
+                features: features ? features.split(',') : [],
+            });
+        }
+
+        switchMenu();
         return false;
     }
 
     const projectReadyMenu: DashboardMenu = {
         title: 'New Project Menu',
         items: [
-            { id: 'createProject', label: 'Create Project', callback: createProject },
+            { id: 'createProject', label: 'Create Project', callback: createProjectFiles },
         ]
     }
 
@@ -171,6 +201,7 @@ function DashboardManager() {
         // if project ready, indicate empty dir and name of dir.
         // display a pick list menu asking user to pick number associated to discovered dirs,
         //      then change to that dir and update menu to relative menu.
+        switchMenu();
         return false;
     }
 
@@ -197,30 +228,32 @@ function DashboardManager() {
         projectSearch: projectSearchMenu,
     }
 
-    const initialize = () => {
-        let dashboardMenu: DashboardMenu | undefined;
-
+    const determineMenu = () => {
         //  check if the current directory is a project
         if (isProject(currentDirectory)) {
             const projectMeta = getProjectMeta(currentDirectory);
             if (projectMeta) {
-                dashboardMenu = menus.project;
+                return menus.project;
             }
         }
         else if (ProjectPackage.has(currentDirectory)) {
             const projectPackage = ProjectPackage.get(currentDirectory);
-            dashboardMenu = menus.projectDiscovery;
+            return menus.projectDiscovery;
         }
         else if (isProjectReady(currentDirectory)) {
-            dashboardMenu = menus.projectReady;
+            return menus.projectReady;
         }
         else {
             const folders = getFolders(currentDirectory);
             if (folders.length > 0) {
-
-                dashboardMenu = menus.projectSearch;
+                return menus.projectSearch;
             }
         }
+        return;
+    }
+
+    const initialize = () => {
+        let dashboardMenu: DashboardMenu | undefined = determineMenu();
 
         if (!dashboard) {
             dashboard = new DashboardUI('AI Projects', {
@@ -229,7 +262,7 @@ function DashboardManager() {
                 },
                 menu: dashboardMenu,
             });
-        
+
             dashboard.render();
         } else {
             dashboard.render();
